@@ -1994,8 +1994,216 @@ public:
 - 抽象类是接口设计基础，纯虚函数定义“必须实现”的能力。
 - 工程中优先保证关系正确：不确定时优先组合而非继承。
 
-## 16. 运算符重载
-理解可读性与语义一致性的重载规则。
+## 16. 运算符重载（知识讲解）
+
+### 16.1 先把名词说清楚
+- 运算符重载（operator overloading）：给自定义类型定义运算符行为。
+- 本质：不是发明新运算符，而是让已有运算符作用于你的类型。
+- 目标：让自定义类型“像内置类型一样自然使用”。
+
+例子：`Complex a, b; a + b;`  
+这里 `+` 对内置 `int` 有定义，对 `Complex` 默认没有，需要你重载。
+
+### 16.2 为什么要重载运算符
+好处：
+- 接口自然，代码可读性好。
+- 与标准库习惯一致（如 `<<` 输出、`==` 比较）。
+
+风险：
+- 滥用后语义反直觉，代码难维护。
+
+规则：重载要符合“读者直觉”，不能为了炫技而改语义。
+
+```mermaid
+flowchart LR
+  A[是否重载运算符?] --> B{语义是否自然?}
+  B -- 是 --> C[可以重载]
+  B -- 否 --> D[改成普通函数名]
+```
+
+### 16.3 基本语法长什么样
+运算符函数有两种写法：
+- 成员函数
+- 非成员函数（常配合 `friend`）
+
+```cpp
+class Vec2 {
+public:
+    Vec2(double x, double y) : x_(x), y_(y) {}
+
+    // 成员函数版本：a + b 等价 a.operator+(b)
+    Vec2 operator+(const Vec2& rhs) const {
+        return Vec2(x_ + rhs.x_, y_ + rhs.y_);
+    }
+
+private:
+    double x_;
+    double y_;
+};
+```
+
+### 16.4 哪些运算符能重载，哪些不能
+可重载：大部分常见运算符（`+ - * / == < << [] () ->` 等）。  
+不能重载（必须记住）：
+- `.`（成员访问）
+- `.*`（成员指针访问）
+- `::`（作用域解析）
+- `?:`（三目运算符）
+- `sizeof`
+- `typeid`
+
+另外，重载不能改变：
+- 运算符优先级
+- 运算符结合性
+- 操作数个数（元数）
+
+### 16.5 成员函数还是非成员函数
+经验规则：
+- 会修改左操作数的复合赋值（如 `+=`）通常做成员函数。
+- 对称二元运算（如 `+`、`==`）常用非成员函数，避免左侧必须是本类对象。
+
+推荐写法：先实现 `+=`，再基于它实现 `+`。
+
+```cpp
+class Vec2 {
+public:
+    Vec2(double x, double y) : x_(x), y_(y) {}
+
+    Vec2& operator+=(const Vec2& rhs) {
+        x_ += rhs.x_;
+        y_ += rhs.y_;
+        return *this;
+    }
+
+    double x() const { return x_; }
+    double y() const { return y_; }
+
+private:
+    double x_;
+    double y_;
+};
+
+inline Vec2 operator+(Vec2 lhs, const Vec2& rhs) {
+    lhs += rhs;
+    return lhs;
+}
+```
+
+### 16.6 输入输出运算符：`<<` 和 `>>`
+这两个通常写成非成员函数（常需 `friend` 访问私有成员）。
+
+```cpp
+#include <iostream>
+
+class Point {
+public:
+    Point(int x = 0, int y = 0) : x_(x), y_(y) {}
+
+    friend std::ostream& operator<<(std::ostream& os, const Point& p) {
+        return os << "(" << p.x_ << ", " << p.y_ << ")";
+    }
+
+    friend std::istream& operator>>(std::istream& is, Point& p) {
+        return is >> p.x_ >> p.y_;
+    }
+
+private:
+    int x_;
+    int y_;
+};
+```
+
+返回流引用是为了支持链式调用：`std::cout << a << b;`
+
+### 16.7 前置++和后置++怎么区分
+签名区别：
+- 前置：`T& operator++();`
+- 后置：`T operator++(int);`（这个 `int` 只是区分标记）
+
+```cpp
+class Counter {
+public:
+    explicit Counter(int v = 0) : value_(v) {}
+
+    Counter& operator++() { // 前置
+        ++value_;
+        return *this;
+    }
+
+    Counter operator++(int) { // 后置
+        Counter old(*this);
+        ++value_;
+        return old;
+    }
+
+private:
+    int value_;
+};
+```
+
+通常前置效率更高（后置要保留旧值副本）。
+
+### 16.8 比较运算符与一致性
+如果你重载了 `==`，通常也要考虑 `!=`（或 C++20 三路比较 `<=>`）。  
+同一类型的比较语义必须一致、可预期。
+
+```cpp
+class Id {
+public:
+    explicit Id(int v) : v_(v) {}
+
+    friend bool operator==(const Id& a, const Id& b) {
+        return a.v_ == b.v_;
+    }
+
+    friend bool operator!=(const Id& a, const Id& b) {
+        return !(a == b);
+    }
+
+private:
+    int v_;
+};
+```
+
+### 16.9 下标、函数调用、箭头运算符
+这几个运算符通常必须作为成员函数重载：
+- `operator[]`
+- `operator()`
+- `operator->`
+- `operator=`
+
+下标重载常见要提供 const/non-const 两个版本：
+
+```cpp
+class IntArray {
+public:
+    int& operator[](std::size_t i) { return data_[i]; }
+    const int& operator[](std::size_t i) const { return data_[i]; }
+
+private:
+    int data_[3]{};
+};
+```
+
+### 16.10 运算符重载设计原则（实战版）
+- 保持语义直觉：`+` 应该像“求和”，不要实现成“写文件”。
+- 保持代数性质：能满足交换律/结合律的尽量满足。
+- 不要过度重载：接口可读性优先。
+- 优先最小实现：先实现核心操作，再复用组合实现其他操作。
+- 对不会修改对象状态的操作，加 `const`。
+
+### 16.11 常见错误模式
+- `operator+` 里直接修改左操作数，违反直觉。
+- `operator<<` 返回值写错（应返回 `std::ostream&`）。
+- 忘记 `const` 版本导致常量对象不能用。
+- 前置/后置 `++` 签名写反。
+- 重载比较运算符但逻辑不一致，导致容器行为异常。
+
+### 16.12 第 16 小节知识总结
+- 运算符重载是“语法糖 + 语义契约”，核心是可读性和一致性。
+- 先判断是否值得重载，再决定成员或非成员实现。
+- `+=`、`==`、`<<`、前后置 `++` 是最常用也最容易出错的重载点。
+- 不改变直觉语义，是运算符重载最重要的工程原则。
 
 ## 17. 模板基础
 函数模板、类模板与泛型思维。
