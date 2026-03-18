@@ -1405,8 +1405,145 @@ enum class Status : std::uint8_t {
 - 二者结合是建模“实体 + 状态”的基础方式。
 - 这一节是后续类设计、状态机和模块接口的前置能力。
 
-## 13. 类与对象入门
-封装、访问控制、构造与析构。
+## 13. 类与对象入门（知识讲解）
+
+### 13.1 为什么需要类
+类（`class`）用于把“数据 + 行为”封装在一起，建立清晰边界。
+
+```mermaid
+graph TD
+  A[业务对象] --> B[数据成员]
+  A --> C[成员函数]
+  B --> D[状态]
+  C --> E[行为]
+```
+
+相比 `struct`，`class` 默认成员访问权限是 `private`，更强调封装。
+
+### 13.2 类与对象的关系
+- 类：类型蓝图。
+- 对象：类的实例。
+
+```cpp
+class Counter {
+private:
+    int value;
+
+public:
+    Counter() : value(0) {}
+    void increment() { ++value; }
+    int get() const { return value; }
+};
+
+Counter c;
+c.increment();
+```
+
+### 13.3 访问控制（封装核心）
+- `private`：仅类内部可访问。
+- `public`：类外可访问接口。
+- `protected`：类和派生类可访问（继承章节详细展开）。
+
+封装目标：隐藏实现细节，只暴露稳定接口。
+
+```mermaid
+flowchart LR
+  A[类外部] --> B[public 接口]
+  B --> C[private 数据]
+  A -.不能直接访问.-> C
+```
+
+### 13.4 构造函数与析构函数
+- 构造函数：对象创建时初始化资源。
+- 析构函数：对象销毁时释放资源。
+
+```cpp
+class FileGuard {
+public:
+    FileGuard() {
+        // 获取资源
+    }
+
+    ~FileGuard() {
+        // 释放资源
+    }
+};
+```
+
+这是 RAII 在类设计中的直接体现。
+
+### 13.5 成员初始化列表
+初始化成员优先使用“初始化列表”，而不是构造函数体内赋值。
+
+```cpp
+class User {
+private:
+    int id;
+    std::string name;
+
+public:
+    User(int i, std::string n) : id(i), name(std::move(n)) {}
+};
+```
+
+场景上更必要于：`const` 成员、引用成员、无默认构造成员。
+
+### 13.6 `this` 指针
+成员函数中隐含 `this` 指针，指向当前对象。
+
+```cpp
+class Box {
+private:
+    int w;
+
+public:
+    Box(int w) : w(w) {} // 等价于 this->w = w
+};
+```
+
+当参数与成员同名时，`this->` 可消除歧义。
+
+### 13.7 `const` 成员函数
+`const` 成员函数承诺不修改对象状态。
+
+```cpp
+class Counter2 {
+private:
+    int value = 0;
+
+public:
+    int get() const { return value; }
+};
+```
+
+只读对象（`const Counter2`）只能调用 `const` 成员函数。
+
+### 13.8 静态成员（入门）
+- `static` 数据成员：属于类本身，不属于某个对象。
+- `static` 成员函数：无 `this`，只能访问静态成员。
+
+```cpp
+class IdGen {
+public:
+    static int nextId() {
+        static int cur = 0;
+        return ++cur;
+    }
+};
+```
+
+### 13.9 常见错误模式
+- 直接暴露数据成员，破坏封装边界。
+- 构造函数遗漏初始化，导致对象处于不完整状态。
+- 忘记将只读方法标记为 `const`。
+- 在类中混入过多职责，造成“上帝类”。
+
+### 13.10 第 13 小节知识总结
+- 类是封装与抽象的核心工具。
+- 访问控制决定接口边界和可维护性。
+- 构造/析构定义对象生命周期行为。
+- 初始化列表、`const` 成员函数、`this` 指针是类设计基本功。
+- 这一节是后续拷贝控制、继承多态的基础。
 
 ## 14. 拷贝控制与对象语义
 拷贝构造、赋值运算符、析构职责。
@@ -1470,6 +1607,7 @@ GoogleTest 入门、断点调试、日志排查。
 - 编译参数：`-std=c++20 -Wall -Wextra -Werror`
 - 命名：类型 `PascalCase`，函数/变量 `camelCase`，常量 `kCamelCase`
 - 代码组织：单一职责、低耦合、高可读性。
+
 
 
 
