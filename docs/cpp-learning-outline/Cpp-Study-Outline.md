@@ -3067,8 +3067,185 @@ std::function<int()> makeBad() {
 - 函数对象、Lambda、`std::function` 各有场景，按复用性与性能要求选择。
 - 你要优先建立的直觉是：值捕获拷贝数据，引用捕获借用数据，借用就要负责生命周期。
 
-## 22. 异常处理与错误模型
-`try/catch`、异常安全与错误边界设计。
+## 22. 异常处理与错误模型（知识讲解）
+
+### 22.1 先把名词说清楚
+- 错误处理（error handling）：程序遇到异常情况时如何反馈和恢复。
+- 异常（exception）：用 `throw` 抛出的错误对象，沿调用栈传播直到被 `catch`。
+- 错误模型（error model）：你在项目中统一采用的错误传递策略（异常、返回值、错误码等）。
+- 异常安全（exception safety）：出现异常时程序状态是否仍正确可控。
+
+一句话：不是“会不会写 `try/catch`”，而是“如何设计稳定的错误边界”。
+
+### 22.2 C++ 异常机制最小模型
+三步：
+1. `throw` 抛出异常对象
+2. 调用栈向上寻找匹配的 `catch`
+3. 找到后处理；找不到则 `std::terminate`
+
+```cpp
+#include <stdexcept>
+
+int divide(int a, int b) {
+    if (b == 0) {
+        throw std::invalid_argument("b must not be zero");
+    }
+    return a / b;
+}
+```
+
+### 22.3 `try/catch` 基本用法
+
+```cpp
+#include <iostream>
+#include <stdexcept>
+
+try {
+    int x = divide(10, 0);
+    std::cout << x << "\n";
+} catch (const std::invalid_argument& e) {
+    std::cout << "invalid argument: " << e.what() << "\n";
+} catch (const std::exception& e) {
+    std::cout << "std exception: " << e.what() << "\n";
+}
+```
+
+原则：
+- 按 `const 引用` 捕获，避免切片和额外拷贝。
+- 先捕获具体类型，再捕获基类（如 `std::exception`）。
+
+### 22.4 栈展开（stack unwinding）与 RAII
+异常传播时会发生栈展开：离开作用域的局部对象会自动析构。  
+这正是 RAII 能保证资源不泄漏的原因。
+
+```mermaid
+sequenceDiagram
+  participant F1 as f1()
+  participant F2 as f2()
+  participant F3 as f3()
+  F1->>F2: call
+  F2->>F3: call
+  F3-->>F2: throw
+  Note over F3,F2: F3 局部对象析构
+  F2-->>F1: rethrow
+  Note over F2,F1: F2 局部对象析构
+  F1->>F1: catch
+```
+
+结论：资源类尽量写成 RAII 对象，不要靠手动 `free/close`。
+
+### 22.5 什么时候该用异常，什么时候不该
+适合抛异常：
+- 无法在当前层恢复，必须交给上层决策。
+- 构造函数失败（对象无法处于有效状态）。
+- 库函数遇到“违背前置条件且调用方可处理”的错误。
+
+不适合抛异常（常见）：
+- 高频、可预期分支（如普通查找未命中）。
+- 性能敏感内环，且团队约定使用返回值模型。
+- 跨语言边界（如 C API）直接传播异常。
+
+### 22.6 统一错误模型很重要
+工程里最怕“半异常半错误码、语义不统一”。  
+建议在模块层做清晰约定：
+- 模块内部可用异常简化逻辑
+- 模块边界统一转换为错误码/状态对象（如面向 C 接口）
+
+一致性比“哪种模型绝对更好”更重要。
+
+### 22.7 标准异常类型速览
+常用异常基类：`std::exception`  
+常见派生：
+- `std::runtime_error`
+- `std::logic_error`
+- `std::invalid_argument`
+- `std::out_of_range`
+
+可以自定义异常类型，但优先复用标准异常层次。
+
+### 22.8 `throw;` 与重新抛出
+在 `catch` 内部：
+- `throw;`：原样重新抛出当前异常（推荐）
+- `throw e;`：可能发生拷贝并丢失动态类型信息（通常不推荐）
+
+```cpp
+try {
+    // ...
+} catch (const std::exception& e) {
+    // 记录日志
+    throw; // 保留原异常类型和上下文传播
+}
+```
+
+### 22.9 `noexcept` 的作用
+`noexcept` 表示函数承诺不抛异常。  
+若 `noexcept` 函数真的抛异常，会直接 `std::terminate`。
+
+```cpp
+void cleanup() noexcept {
+    // 不应抛异常
+}
+```
+
+意义：
+- 文档化接口承诺
+- 影响标准库优化路径（如容器更愿意使用 `noexcept` 移动构造）
+
+### 22.10 异常安全三级保证（必须会）
+- 基本保证（basic guarantee）：
+  异常后程序仍处于有效状态，不泄漏资源，但对象值可能变化。
+- 强保证（strong guarantee）：
+  操作要么成功，要么对象保持原状（事务式）。
+- 不抛保证（no-throw guarantee）：
+  承诺绝不抛异常（如某些析构/交换操作）。
+
+```mermaid
+graph LR
+  A[异常安全] --> B[Basic]
+  A --> C[Strong]
+  A --> D[No-throw]
+```
+
+### 22.11 析构函数与异常：一条硬规则
+析构函数不应抛异常。  
+特别是在栈展开过程中，若析构再抛异常，程序通常会 `terminate`。
+
+因此：
+- 析构里做“不会失败”的清理
+- 可能失败的操作放到显式 `close()/commit()` 并让调用方处理
+
+### 22.12 错误边界设计（实战）
+推荐分层：
+- 底层资源层：抛具体异常，保证 RAII。
+- 业务服务层：捕获并附加上下文（日志、请求 ID）。
+- 进程入口层（`main`）：统一兜底捕获，输出错误并返回非 0。
+
+```cpp
+int main() {
+    try {
+        // runApp();
+        return 0;
+    } catch (const std::exception& e) {
+        // log: e.what()
+        return 1;
+    } catch (...) {
+        return 2;
+    }
+}
+```
+
+### 22.13 常见错误模式
+- 用异常做普通流程控制（可读性和性能都差）。
+- `catch(...)` 后静默吞掉错误，不记录上下文。
+- 在析构函数里抛异常。
+- 捕获异常按值而非 `const&`，导致切片。
+- 写了 `noexcept` 却仍可能抛异常。
+
+### 22.14 第 22 小节知识总结
+- 异常机制是“传播错误 + 自动栈展开 + RAII清理”的组合体系。
+- 关键不是语法，而是边界设计与一致错误模型。
+- 异常安全等级（basic/strong/no-throw）是工程质量基线。
+- 你应优先掌握：何时抛、在哪里接、如何保证资源与状态一致性。
 
 ## 23. 内存管理与 RAII
 理解栈堆、资源释放与生命周期管理。
