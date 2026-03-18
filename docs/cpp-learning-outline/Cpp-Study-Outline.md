@@ -2205,8 +2205,203 @@ private:
 - `+=`、`==`、`<<`、前后置 `++` 是最常用也最容易出错的重载点。
 - 不改变直觉语义，是运算符重载最重要的工程原则。
 
-## 17. 模板基础
-函数模板、类模板与泛型思维。
+## 17. 模板基础（知识讲解）
+
+### 17.1 先把名词说清楚
+- 模板（template）：写一份通用代码，让编译器按不同类型生成具体代码。
+- 泛型（generic）：不依赖某个具体类型，而依赖一组能力（如“可比较”“可相加”）。
+- 实例化（instantiation）：编译器把模板变成具体函数/类的过程。
+- 特化（specialization）：对某些特定类型给出“专门实现”。
+
+一句话：模板是“编译期代码生成器”。
+
+### 17.2 为什么要学模板
+不用模板时，你会写大量重复函数：
+
+```cpp
+int maxInt(int a, int b) { return a > b ? a : b; }
+double maxDouble(double a, double b) { return a > b ? a : b; }
+```
+
+用模板写一次即可复用：
+
+```cpp
+template <typename T>
+T maxValue(T a, T b) {
+    return a > b ? a : b;
+}
+```
+
+```mermaid
+flowchart LR
+  A[一份模板代码] --> B[int 版本]
+  A --> C[double 版本]
+  A --> D[string 版本]
+```
+
+### 17.3 函数模板基础
+最常见写法：
+
+```cpp
+template <typename T>
+T add(T a, T b) {
+    return a + b;
+}
+```
+
+调用时通常自动推导类型：
+
+```cpp
+auto x = add(2, 3);         // T 推导为 int
+auto y = add(1.5, 2.5);     // T 推导为 double
+```
+
+也可以显式指定：
+
+```cpp
+auto z = add<long long>(2, 3);
+```
+
+### 17.4 模板参数不只有类型
+除了类型参数（`typename T`），还有非类型模板参数（NTTP）。
+
+```cpp
+template <typename T, std::size_t N>
+T sumArray(const T (&arr)[N]) {
+    T s{};
+    for (std::size_t i = 0; i < N; ++i) s += arr[i];
+    return s;
+}
+```
+
+这里 `N` 是编译期常量参数，不是运行期变量。
+
+### 17.5 类模板基础
+类也可以模板化：
+
+```cpp
+template <typename T>
+class Box {
+public:
+    explicit Box(T v) : value(v) {}
+    const T& get() const { return value; }
+
+private:
+    T value;
+};
+```
+
+使用：
+
+```cpp
+Box<int> bi(42);
+Box<std::string> bs("hello");
+```
+
+### 17.6 模板实例化：何时真的生成代码
+模板本身不是可执行代码，只有“被用到”时才会实例化。
+
+- 调用了函数模板
+- 创建了类模板对象
+
+为什么模板常写在头文件：  
+编译一个 `.cpp` 时，编译器要“看见模板定义”才能实例化；只给声明不够。
+
+### 17.7 两阶段查找与常见报错直觉
+模板报错常又长又绕，先抓这条直觉：
+- 定义模板时检查一部分（与模板参数无关的部分）
+- 实例化时再检查依赖模板参数的部分
+
+所以你会看到“写模板时不报错，调用时才爆一串错误”的情况。
+
+### 17.8 模板特化（specialization）
+当通用实现对某些类型不合适，可用特化。
+
+函数模板重载（更常用）：
+
+```cpp
+template <typename T>
+void printValue(const T& v) {
+    std::cout << v << "\n";
+}
+
+void printValue(const char* s) {
+    std::cout << "[cstr] " << s << "\n";
+}
+```
+
+类模板偏特化（常见于库设计）：
+
+```cpp
+template <typename T>
+class TypeName {
+public:
+    static const char* name() { return "unknown"; }
+};
+
+template <>
+class TypeName<int> {
+public:
+    static const char* name() { return "int"; }
+};
+```
+
+### 17.9 `typename` 与 `class` 在模板参数里
+在模板参数列表里这两种写法等价：
+
+```cpp
+template <typename T> class A;
+template <class T> class B;
+```
+
+工程里更常见 `typename`，语义更直观（表示“类型名”）。
+
+### 17.10 C++20 `concept`：给模板加“能力约束”
+传统模板报错可读性差。`concept` 能提前限制类型能力，错误更友好。
+
+```cpp
+#include <concepts>
+
+template <std::integral T>
+T gcd(T a, T b) {
+    while (b != 0) {
+        T t = a % b;
+        a = b;
+        b = t;
+    }
+    return a;
+}
+```
+
+这里要求 `T` 必须是整数类型，`double` 不能传入。
+
+```mermaid
+flowchart TD
+  A[模板参数 T] --> B{满足 concept?}
+  B -- 是 --> C[参与重载/实例化]
+  B -- 否 --> D[编译期拒绝]
+```
+
+### 17.11 泛型设计思维：面向“能力”而非“类型名”
+写模板时，先问参数类型需要具备什么能力：
+- 是否需要 `operator<`
+- 是否需要可拷贝/可移动
+- 是否需要默认构造
+
+这比写死“只能 int/float”更可扩展。
+
+### 17.12 常见错误模式
+- 把模板定义写在 `.cpp`，导致链接/未定义符号问题。
+- 模板参数推导失败（如混合类型调用 `add(1, 2.5)`）。
+- 误把“函数模板特化”当成首选，很多场景重载更清晰。
+- 报错太长就放弃定位，不先看第一条“真实错误”。
+- 模板代码缺少约束，错误信息对使用者不友好。
+
+### 17.13 第 17 小节知识总结
+- 模板让你“写一次，按类型生成多份代码”。
+- 核心能力：函数模板、类模板、实例化、特化。
+- 现代实践要加入约束（`concept`），提升可读性与可维护性。
+- 模板不是炫技工具，目标始终是“减少重复 + 保持接口清晰”。
 
 ## 18. STL 容器（一）
 `vector`、`deque`、`list` 的使用场景。
