@@ -1545,8 +1545,240 @@ public:
 - 初始化列表、`const` 成员函数、`this` 指针是类设计基本功。
 - 这一节是后续拷贝控制、继承多态的基础。
 
-## 14. 拷贝控制与对象语义
-拷贝构造、赋值运算符、析构职责。
+## 14. 拷贝控制与对象语义（知识讲解）
+
+### 14.1 先把名词说人话（术语速查）
+- 对象（object）：类的一个实例，比如 `Student s;`。
+- 资源（resource）：不仅是内存，还包括文件句柄、网络连接、互斥锁等“需要释放”的东西。
+- 拷贝（copy）：复制一份“看起来一样”的对象。
+- 移动（move）：不复制内容，而是把“资源所有权”转交给新对象。
+- 所有权（ownership）：谁负责在最后释放资源。
+- RAII：资源获取即初始化。对象构造时拿资源，析构时自动释放资源。
+- 拷贝构造：`T b = a;` 或 `T b(a);` 时调用。
+- 拷贝赋值：`b = a;` 时调用（`b` 已经存在）。
+- 移动构造：`T b = std::move(a);` 或返回临时对象时可能调用。
+- 移动赋值：`b = std::move(a);` 时调用。
+
+如果这些概念先不稳，后面的“为什么崩溃”“为什么双重释放”会很难理解。
+
+### 14.2 对象语义到底在解决什么
+对象语义就是给类回答 3 个问题：
+1. 复制我时，复制的是“值”还是“资源地址”？
+2. 转移我时，旧对象还能不能继续用？
+3. 我销毁时，哪些资源必须释放？
+
+```mermaid
+graph TD
+  A[对象语义] --> B[复制时做什么]
+  A --> C[移动时做什么]
+  A --> D[销毁时做什么]
+  B --> E[深拷贝 or 浅拷贝]
+  C --> F[转移所有权]
+  D --> G[避免泄漏/重复释放]
+```
+
+### 14.3 编译器“默认帮你写”的 6 个函数
+如果你不写，编译器可能帮你生成这些特殊成员函数：
+- 默认构造函数
+- 析构函数
+- 拷贝构造函数
+- 拷贝赋值运算符
+- 移动构造函数（C++11+，有条件）
+- 移动赋值运算符（C++11+，有条件）
+
+默认行为通常是“成员逐个拷贝/移动”（member-wise）。  
+对 `int`、`std::string`、`std::vector` 这类自带正确语义的成员通常没问题；对“裸指针 owning memory”通常有坑。
+
+### 14.4 最关键陷阱：浅拷贝
+看下面这个类（拥有一段堆内存）：
+
+```cpp
+class Buffer {
+public:
+    explicit Buffer(std::size_t n) : size(n), data(new int[n]{}) {}
+    ~Buffer() { delete[] data; }
+
+private:
+    std::size_t size;
+    int* data; // 拥有这段内存
+};
+```
+
+如果执行：
+
+```cpp
+Buffer a(10);
+Buffer b = a; // 默认拷贝构造
+```
+
+默认拷贝会让 `a.data` 和 `b.data` 指向同一块内存（浅拷贝）。  
+结果：`a` 析构一次、`b` 再析构一次，同一指针被 `delete[]` 两次，程序可能崩溃。
+
+### 14.5 深拷贝：为每个对象准备独立资源
+如果类拥有资源，通常要自定义“拷贝构造 + 拷贝赋值”做深拷贝。
+
+```cpp
+#include <algorithm>
+#include <cstddef>
+
+class Buffer {
+public:
+    explicit Buffer(std::size_t n) : size(n), data(new int[n]{}) {}
+
+    Buffer(const Buffer& other) : size(other.size), data(new int[other.size]) {
+        std::copy(other.data, other.data + size, data);
+    }
+
+    Buffer& operator=(const Buffer& other) {
+        if (this == &other) return *this; // 自赋值保护
+
+        int* newData = new int[other.size];
+        std::copy(other.data, other.data + other.size, newData);
+
+        delete[] data; // 旧资源释放
+        data = newData;
+        size = other.size;
+        return *this;
+    }
+
+    ~Buffer() { delete[] data; }
+
+private:
+    std::size_t size{};
+    int* data{};
+};
+```
+
+这段代码体现两个常见面试点：
+- `this == &other`：防止 `x = x` 时把自己搞坏。
+- 先申请新内存再删旧内存：异常安全更好。
+
+### 14.6 拷贝构造 vs 拷贝赋值（必须分清）
+它们经常被混淆：
+- 拷贝构造：创建新对象时发生。
+- 拷贝赋值：给已有对象重新赋值时发生。
+
+```cpp
+Buffer a(8);
+Buffer b = a; // 拷贝构造
+
+Buffer c(16);
+c = a;        // 拷贝赋值
+```
+
+```mermaid
+flowchart LR
+  A[已有对象 a] --> B{使用场景}
+  B -->|新建 b| C[拷贝构造]
+  B -->|已有 c 再赋值| D[拷贝赋值]
+```
+
+### 14.7 移动语义：把“车钥匙”交出去，不再复制整辆车
+移动语义适用于“临时对象”或“明确放弃原对象资源”的场景。  
+目标：少复制，提高性能。
+
+```cpp
+class Buffer {
+public:
+    explicit Buffer(std::size_t n) : size(n), data(new int[n]{}) {}
+
+    Buffer(Buffer&& other) noexcept : size(other.size), data(other.data) {
+        other.size = 0;
+        other.data = nullptr;
+    }
+
+    Buffer& operator=(Buffer&& other) noexcept {
+        if (this == &other) return *this;
+        delete[] data;
+        size = other.size;
+        data = other.data;
+        other.size = 0;
+        other.data = nullptr;
+        return *this;
+    }
+
+    ~Buffer() { delete[] data; }
+
+private:
+    std::size_t size{};
+    int* data{};
+};
+```
+
+这里的 `other`（源对象）被“搬空”后仍必须是有效对象：可以析构、可以再赋值。  
+`noexcept` 很重要：标准库容器在扩容时通常更愿意使用 `noexcept` 的移动操作。
+
+### 14.8 Rule of Three / Five / Zero（什么时候该自己写）
+- Rule of Three：
+  你一旦自定义了析构、拷贝构造、拷贝赋值中的任意一个，通常另外两个也要考虑自定义。
+- Rule of Five：
+  C++11+ 再加上移动构造和移动赋值，一共五个。
+- Rule of Zero：
+  最推荐。尽量让成员都使用“会自动管理资源”的类型（如 `std::string`、`std::vector`、`std::unique_ptr`），这样你通常 5 个都不用手写。
+
+```mermaid
+flowchart LR
+  A[类是否直接管理裸资源?]
+  A -->|否| B[Rule of Zero: 默认即可]
+  A -->|是| C[至少 Rule of Three]
+  C --> D[C++11+ 通常做到 Rule of Five]
+```
+
+### 14.9 `=default` 与 `=delete`：把意图写出来
+你可以显式告诉编译器“我要默认”或“我要禁用”。
+
+```cpp
+class NonCopyable {
+public:
+    NonCopyable() = default;
+    NonCopyable(const NonCopyable&) = delete;
+    NonCopyable& operator=(const NonCopyable&) = delete;
+};
+```
+
+场景：
+- 互斥锁、文件句柄包装类通常不允许复制。
+- 某些类型允许移动但不允许拷贝。
+
+### 14.10 一个更稳健的赋值写法：copy-and-swap
+思想：把参数按值传入（先复制一份），再和当前对象交换资源。  
+优点：实现简洁、异常安全性好。
+
+```cpp
+#include <utility>
+
+class X {
+public:
+    X& operator=(X other) noexcept {
+        swap(other);
+        return *this;
+    }
+
+    void swap(X& other) noexcept {
+        std::swap(size, other.size);
+        std::swap(data, other.data);
+    }
+
+private:
+    std::size_t size{};
+    int* data{};
+};
+```
+
+### 14.11 常见错误模式（初学者高频）
+- 误以为“有析构函数就够了”，结果没写拷贝控制导致浅拷贝。
+- 在移动函数里忘记把源对象置成安全状态（例如忘记置空）。
+- 把 `std::move` 理解成“移动动作本身”。
+  事实：`std::move` 只是类型转换，真正是否移动取决于是否有可用的移动函数。
+- 在不需要手写资源管理的场景硬写裸指针类，维护成本大。
+
+### 14.12 学习建议与本节总结
+- 先把 4 个函数背熟并能区分触发场景：
+  拷贝构造、拷贝赋值、移动构造、移动赋值。
+- 做练习时优先写“资源类”与“非资源类”各一个，对比差异。
+- 工程里优先 Rule of Zero，少写手动 `new/delete`。
+- 你现在要建立的核心直觉是：
+  “谁拥有资源，谁负责释放；复制要不要共享，必须明确设计。”
 
 ## 15. 继承与多态
 虚函数、覆盖、抽象类与接口设计。
