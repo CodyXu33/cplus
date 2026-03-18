@@ -1272,8 +1272,138 @@ std::string s = std::to_string(3.14);
 - 固定长度集合优先 `std::array`，更安全可读。
 - 输入、转换和边界处理决定字符串代码稳定性。
 
-## 12. 结构体与枚举
-使用 `struct`、`enum class` 组织数据。
+## 12. 结构体与枚举（知识讲解）
+
+### 12.1 为什么需要结构体和枚举
+- `struct`：把相关字段聚合成一个自定义类型。
+- `enum class`：为离散状态提供有类型约束的取值集合。
+
+```mermaid
+graph TD
+  A[业务数据] --> B[struct 建模]
+  A --> C[enum class 状态建模]
+  B --> D[字段聚合]
+  C --> E[类型安全]
+```
+
+### 12.2 `struct` 基础
+`struct` 默认成员访问权限是 `public`，适合纯数据对象。
+
+```cpp
+#include <string>
+
+struct Student {
+    int id;
+    std::string name;
+    double score;
+};
+
+Student s{1, "Alice", 92.5};
+```
+
+与 `class` 的主要语法差别：默认访问权限（`struct` 是 `public`，`class` 是 `private`）。
+
+### 12.3 成员函数与行为封装
+`struct` 也可以有成员函数，不只是“数据袋子”。
+
+```cpp
+struct Point {
+    double x;
+    double y;
+
+    double length2() const {
+        return x * x + y * y;
+    }
+};
+```
+
+当数据和简单行为强相关时，放在同一个类型里更清晰。
+
+### 12.4 初始化方式
+推荐使用列表初始化，避免遗漏字段：
+
+```cpp
+struct Config {
+    int port;
+    bool debug;
+};
+
+Config c{8080, true};
+```
+
+也可使用默认成员初始值：
+
+```cpp
+struct Config2 {
+    int port = 8080;
+    bool debug = false;
+};
+```
+
+### 12.5 枚举类型：`enum` vs `enum class`
+传统 `enum` 存在命名污染和隐式转换问题，现代 C++ 优先 `enum class`。
+
+```cpp
+enum class Color {
+    Red,
+    Green,
+    Blue
+};
+
+Color c = Color::Red;
+```
+
+```mermaid
+flowchart LR
+  A[enum] --> B[命名易冲突]
+  A --> C[可隐式转 int]
+  D[enum class] --> E[作用域隔离]
+  D --> F[转换需显式]
+```
+
+### 12.6 枚举与 `switch`
+`enum class` 常与 `switch` 配合处理状态机逻辑。
+
+```cpp
+enum class State { Idle, Running, Error };
+
+void handle(State s) {
+    switch (s) {
+    case State::Idle:
+        break;
+    case State::Running:
+        break;
+    case State::Error:
+        break;
+    }
+}
+```
+
+建议覆盖所有枚举分支，减少遗漏。
+
+### 12.7 枚举底层类型
+可显式指定底层类型，便于与协议/存储格式对齐。
+
+```cpp
+#include <cstdint>
+
+enum class Status : std::uint8_t {
+    Ok = 0,
+    Fail = 1
+};
+```
+
+### 12.8 常见错误模式
+- 把 `struct` 当全局可写数据集合，导致耦合失控。
+- 使用传统 `enum` 导致命名冲突。
+- 忘记为 `enum class` 使用作用域限定（如 `Color::Red`）。
+- `switch` 未覆盖全部状态，导致分支遗漏。
+
+### 12.9 第 12 小节知识总结
+- `struct` 用于聚合数据并组织相关行为。
+- `enum class` 提供更强类型安全与命名隔离。
+- 二者结合是建模“实体 + 状态”的基础方式。
+- 这一节是后续类设计、状态机和模块接口的前置能力。
 
 ## 13. 类与对象入门
 封装、访问控制、构造与析构。
@@ -1340,6 +1470,7 @@ GoogleTest 入门、断点调试、日志排查。
 - 编译参数：`-std=c++20 -Wall -Wextra -Werror`
 - 命名：类型 `PascalCase`，函数/变量 `camelCase`，常量 `kCamelCase`
 - 代码组织：单一职责、低耦合、高可读性。
+
 
 
 
