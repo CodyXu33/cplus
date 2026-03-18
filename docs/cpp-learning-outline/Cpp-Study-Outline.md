@@ -1159,8 +1159,118 @@ void printIfNotNull(const int* p) {
 - 数组与指针关系紧密，但边界必须严格控制。
 - 指针强大但风险高，后续会用 RAII 与智能指针降低错误率。
 
-## 11. 数组与字符串
-掌握 C 风格数组与 `std::string`。
+## 11. 数组与字符串（知识讲解）
+
+### 11.1 数组的基本概念
+数组是“同类型元素的连续内存块”，通过下标访问。
+
+```cpp
+int arr[5] = {1, 2, 3, 4, 5};
+std::cout << arr[0] << " " << arr[4] << "\n";
+```
+
+```mermaid
+graph LR
+  A["arr[0]"] --> B["arr[1]"] --> C["arr[2]"] --> D["arr[3]"] --> E["arr[4]"]
+```
+
+重点：下标范围是 `[0, n-1]`，越界访问是未定义行为。
+
+### 11.2 C 风格数组与 `std::array`
+- C 风格数组：语法直接、性能高，但不记录长度信息。
+- `std::array<T, N>`：固定长度容器，接口更现代、安全性更好。
+
+```cpp
+#include <array>
+
+std::array<int, 3> a{10, 20, 30};
+std::cout << a.size() << "\n"; // 3
+```
+
+工程中优先使用 `std::array`（固定长度）或 `std::vector`（动态长度）。
+
+### 11.3 遍历方式
+常见遍历方式：
+
+```cpp
+int arr[3] = {10, 20, 30};
+for (int i = 0; i < 3; ++i) {
+    std::cout << arr[i] << " ";
+}
+
+for (int v : arr) {
+    std::cout << v << " ";
+}
+```
+
+范围 `for` 在不需要索引时更简洁、可读性更高。
+
+### 11.4 `std::string` 基础
+`std::string` 是 C++ 标准字符串类型，自动管理内存。
+
+```cpp
+#include <string>
+
+std::string s = "hello";
+s += " world";
+std::cout << s << "\n"; // hello world
+```
+
+常用操作：
+- `size()/length()`：长度
+- `substr(pos, len)`：子串
+- `find()`：查找
+- `+` 或 `+=`：拼接
+
+### 11.5 C 字符串与 `std::string` 区别
+- C 字符串：`char[]`，以 `\0` 结尾，需手动处理边界。
+- `std::string`：封装长度和容量，接口更安全易用。
+
+```cpp
+char cstr[] = "abc";      // C 字符串
+std::string str = "abc";  // C++ 字符串
+```
+
+```mermaid
+flowchart TD
+  A[字符串处理需求] --> B{选型}
+  B -- 现代 C++ --> C[std::string]
+  B -- 兼容旧接口 --> D["char* / char[]"]
+```
+
+### 11.6 字符串输入的常见坑
+- `cin >> s`：读到空白就停止。
+- `getline(cin, s)`：读取整行（含空格）。
+
+```cpp
+std::string line;
+std::getline(std::cin, line);
+```
+
+若前面使用过 `>>`，应先处理残留换行（如 `cin.ignore()`）。
+
+### 11.7 字符串与数字转换
+常见转换函数：
+- `std::stoi`：字符串转 `int`
+- `std::stod`：字符串转 `double`
+- `std::to_string`：数字转字符串
+
+```cpp
+int n = std::stoi("123");
+std::string s = std::to_string(3.14);
+```
+
+### 11.8 常见错误模式
+- 数组越界访问。
+- 把 C 字符串当作可无限写入缓冲区。
+- 混用 `>>` 与 `getline` 导致读取空行。
+- 对空字符串直接访问 `s[0]`。
+
+### 11.9 第 11 小节知识总结
+- 数组是连续内存结构，边界控制是第一原则。
+- 现代 C++ 字符串优先使用 `std::string`。
+- 固定长度集合优先 `std::array`，更安全可读。
+- 输入、转换和边界处理决定字符串代码稳定性。
 
 ## 12. 结构体与枚举
 使用 `struct`、`enum class` 组织数据。
@@ -1230,6 +1340,8 @@ GoogleTest 入门、断点调试、日志排查。
 - 编译参数：`-std=c++20 -Wall -Wextra -Werror`
 - 命名：类型 `PascalCase`，函数/变量 `camelCase`，常量 `kCamelCase`
 - 代码组织：单一职责、低耦合、高可读性。
+
+
 
 
 
