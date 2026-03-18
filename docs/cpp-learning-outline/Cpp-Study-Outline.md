@@ -2403,17 +2403,669 @@ flowchart TD
 - 现代实践要加入约束（`concept`），提升可读性与可维护性。
 - 模板不是炫技工具，目标始终是“减少重复 + 保持接口清晰”。
 
-## 18. STL 容器（一）
-`vector`、`deque`、`list` 的使用场景。
+## 18. STL 容器（一）（知识讲解）
 
-## 19. STL 容器（二）
-`map`、`set`、`unordered_map` 的选择。
+### 18.1 先把名词说清楚
+- 容器（container）：标准库里“管理一组对象”的数据结构。
+- 顺序容器（sequence container）：元素按插入顺序组织，可按位置访问。
+- 本节 3 个主角：
+  - `std::vector`：连续内存的动态数组。
+  - `std::deque`：分段连续结构的双端队列。
+  - `std::list`：双向链表。
 
-## 20. 迭代器与算法库
-使用 `sort`、`find`、`accumulate` 等算法。
+一句话：三者都能“存很多元素”，但内部结构不同，性能特征完全不同。
 
-## 21. Lambda 与函数对象
-掌握闭包、捕获方式与可调用对象。
+### 18.2 为什么要关心容器选型
+同样功能，不同容器可能差一个数量级性能。  
+选型核心看三件事：
+1. 访问模式：随机访问多不多？
+2. 插入删除位置：主要在尾部、头部还是中间？
+3. 内存与缓存友好性：是否追求遍历速度？
+
+```mermaid
+flowchart TD
+  A[容器选型] --> B{随机访问是否高频?}
+  B -- 是 --> C[优先 vector]
+  B -- 否 --> D{是否频繁两端插删?}
+  D -- 是 --> E[考虑 deque]
+  D -- 否 --> F{是否频繁中间插删且已持有迭代器?}
+  F -- 是 --> G[考虑 list]
+  F -- 否 --> C
+```
+
+### 18.3 `std::vector`：默认首选
+特点：
+- 内存连续，缓存友好，遍历和随机访问非常快。
+- 尾部 `push_back` 通常摊还 O(1)。
+- 中间插入/删除需要搬移元素，通常 O(n)。
+
+```cpp
+#include <vector>
+#include <iostream>
+
+std::vector<int> v;
+v.push_back(10);
+v.push_back(20);
+v.push_back(30);
+std::cout << v[1] << "\n"; // 20，O(1) 随机访问
+```
+
+工程建议：如果没有明确反例，先用 `vector`。
+
+### 18.4 `capacity`、扩容与 `reserve`
+`vector` 有两个概念：
+- `size()`：当前元素个数
+- `capacity()`：当前已分配容量
+
+当 `size() > capacity()` 时会扩容并搬迁元素，可能导致迭代器/指针失效。
+
+```cpp
+std::vector<int> v;
+v.reserve(1000); // 预留容量，减少反复扩容
+for (int i = 0; i < 1000; ++i) v.push_back(i);
+```
+
+### 18.5 `std::deque`：高效双端插删
+特点：
+- 支持头尾插删都接近 O(1)。
+- 支持随机访问（`operator[]`），但通常比 `vector` 慢一点。
+- 内存不是单块连续。
+
+```cpp
+#include <deque>
+
+std::deque<int> q;
+q.push_back(1);
+q.push_front(0);
+q.push_back(2); // 结果: 0 1 2
+```
+
+适合：队列、滑动窗口等“两端操作频繁”的场景。
+
+### 18.6 `std::list`：链表并非性能银弹
+特点：
+- 任意位置插入/删除（已知位置迭代器）是 O(1)。
+- 不支持随机访问（没有 `operator[]`）。
+- 每个节点额外指针开销大，缓存不友好，遍历常慢于 `vector`。
+
+```cpp
+#include <list>
+
+std::list<int> lst{1, 2, 3};
+auto it = lst.begin();
+++it;              // 指向 2
+lst.insert(it, 99); // 1, 99, 2, 3
+```
+
+很多人以为“插入快就该用 list”，实际工程中 `vector` 往往更快更省内存。
+
+### 18.7 复杂度速览（背结论）
+- `vector`
+  - 随机访问：O(1)
+  - 尾部插删：摊还 O(1)
+  - 头部/中间插删：O(n)
+- `deque`
+  - 随机访问：O(1)
+  - 头尾插删：O(1)
+  - 中间插删：O(n)
+- `list`
+  - 随机访问：不支持
+  - 已知位置插删：O(1)
+  - 按索引找位置：O(n)
+
+### 18.8 迭代器失效规则（高频 bug 来源）
+- `vector`
+  - 扩容后：大部分（通常全部）迭代器/引用/指针失效。
+  - 中间插删：插删点及其后元素的迭代器常失效。
+- `deque`
+  - 头尾插删相对稳定，但规则复杂，保守做法是操作后重新获取迭代器。
+- `list`
+  - 插入通常不使其他迭代器失效。
+  - 删除某节点只使指向该节点的迭代器失效。
+
+```mermaid
+flowchart LR
+  A[持有迭代器] --> B{容器发生结构修改?}
+  B -- 否 --> C[继续使用]
+  B -- 是 --> D[检查失效规则]
+  D --> E[不确定就重新获取迭代器]
+```
+
+### 18.9 常见成员函数速用
+三者共有高频接口：
+- `empty()`：是否为空
+- `size()`：元素个数
+- `clear()`：清空
+- `begin()/end()`：迭代器区间
+- `insert()/erase()`：插入删除（语义依容器不同）
+
+`vector/deque` 常用：
+- `push_back()`, `pop_back()`
+- `front()`, `back()`
+
+`deque` 额外常用：
+- `push_front()`, `pop_front()`
+
+`list` 常用：
+- `push_front()`, `push_back()`
+- `splice()`（链表节点转移，低开销）
+
+### 18.10 选型建议（实战）
+- 大多数场景：`vector`
+- 频繁头尾插删：`deque`
+- 需要稳定迭代器并频繁在已知位置插删：`list`
+
+不要因为“理论复杂度”就直接选 `list`，先做基准测试再决定。
+
+### 18.11 常见错误模式
+- 误以为 `list` 一定比 `vector` 快。
+- 在 `vector` 扩容后继续使用旧迭代器。
+- 需要随机访问却选了 `list`。
+- 小数据量过度优化容器，代码复杂化但收益很小。
+- 忘记 `reserve` 导致 `vector` 频繁扩容。
+
+### 18.12 第 18 小节知识总结
+- `vector` 是默认首选，兼顾性能与简洁。
+- `deque` 擅长双端操作，`list` 擅长“已知位置”的常数级插删。
+- 选容器不要只看接口，要看“操作模式 + 迭代器失效 + 缓存友好性”。
+- 工程决策先用合理默认，再用数据验证。
+
+## 19. STL 容器（二）（知识讲解）
+
+### 19.1 先把名词说清楚
+- 关联容器（associative container）：按“键（key）”组织和查找数据。
+- `std::map<K, V>`：键值对容器，键唯一，按键有序。
+- `std::set<K>`：只存键，键唯一，按键有序。
+- `std::unordered_map<K, V>`：键值对容器，键唯一，按哈希分桶，无序。
+
+一句话：`map/set` 强调“有序”，`unordered_map` 强调“平均 O(1) 查找”。
+
+### 19.2 底层结构与复杂度直觉
+常见实现（主流 STL）：
+- `map/set`：红黑树（平衡二叉搜索树）
+  - 查找/插入/删除：O(log n)
+  - 元素按键有序，可范围查询
+- `unordered_map`：哈希表
+  - 平均查找/插入/删除：O(1)
+  - 最坏可退化到 O(n)（冲突严重）
+
+```mermaid
+flowchart LR
+  A[需要按键查找] --> B{是否需要有序/范围查询?}
+  B -- 是 --> C[map / set]
+  B -- 否 --> D[unordered_map]
+```
+
+### 19.3 `map` 基础用法
+`map` 适合“按键排序 + 需要 value”的场景。
+
+```cpp
+#include <map>
+#include <string>
+
+std::map<std::string, int> score;
+score["alice"] = 95;
+score["bob"] = 88;
+
+if (auto it = score.find("alice"); it != score.end()) {
+    // it->first 是 key，it->second 是 value
+}
+```
+
+键自动保持升序（默认按 `<` 比较）。
+
+### 19.4 `set` 基础用法
+`set` 适合“去重 + 判断是否存在”。
+
+```cpp
+#include <set>
+
+std::set<int> s{3, 1, 3, 2}; // 自动去重，结果 1,2,3
+s.insert(4);
+bool has2 = s.count(2) > 0;
+```
+
+如果你只需要键、不需要值，用 `set` 比 `map<K, bool>` 更语义化。
+
+### 19.5 `unordered_map` 基础用法
+`unordered_map` 适合“高频查找，不关心顺序”。
+
+```cpp
+#include <unordered_map>
+#include <string>
+
+std::unordered_map<std::string, int> freq;
+++freq["apple"];
+++freq["banana"];
+++freq["apple"];
+```
+
+遍历顺序不稳定，不要依赖输出顺序。
+
+### 19.6 `operator[]` 的副作用（高频坑）
+对 `map/unordered_map`，`m[key]` 在 key 不存在时会插入默认值。
+
+```cpp
+std::map<std::string, int> m;
+int v = m["new_key"]; // new_key 被插入，值为 0
+```
+
+如果你只是“查有没有”，应优先：
+- `find()`
+- `contains()`（C++20）
+- `at()`（不存在会抛异常，不会插入）
+
+### 19.7 自定义键类型需要什么
+- `map/set`：键类型需要可比较（默认使用 `<`）。
+- `unordered_map`：键类型需要哈希函数和相等比较。
+
+自定义 `unordered_map` 键示例：
+
+```cpp
+#include <unordered_map>
+#include <string>
+
+struct UserKey {
+    int id;
+    std::string region;
+
+    bool operator==(const UserKey& other) const {
+        return id == other.id && region == other.region;
+    }
+};
+
+struct UserKeyHash {
+    std::size_t operator()(const UserKey& k) const {
+        return std::hash<int>{}(k.id) ^ (std::hash<std::string>{}(k.region) << 1);
+    }
+};
+
+std::unordered_map<UserKey, int, UserKeyHash> table;
+```
+
+### 19.8 有序容器的范围查询能力
+`map/set` 提供 `lower_bound` / `upper_bound`，适合区间查询。
+
+```cpp
+std::map<int, std::string> mp{{10, "a"}, {20, "b"}, {30, "c"}};
+auto it = mp.lower_bound(15); // 指向 key=20
+```
+
+如果需求是“查 [L, R] 范围内键”，`map/set` 比 `unordered_map` 更合适。
+
+### 19.9 迭代器失效规则（简化记忆）
+- `map/set`：
+  - 插入通常不会使已有迭代器失效。
+  - 删除某元素只使指向该元素的迭代器失效。
+- `unordered_map`：
+  - rehash（扩桶）后，迭代器可能大量失效。
+  - 删除某元素使该元素迭代器失效。
+
+如果对稳定迭代器敏感，要特别注意 `unordered_map` 的 rehash 行为。
+
+### 19.10 `unordered_map` 性能细节：负载因子
+哈希表性能受负载因子影响：
+- `load_factor = size / bucket_count`
+- 负载过高会冲突增加，查找变慢。
+
+可用：
+- `reserve(n)`：提前分桶，减少 rehash
+- `rehash(n)`：手动调整桶数量
+
+```cpp
+std::unordered_map<std::string, int> um;
+um.reserve(10000);
+```
+
+### 19.11 选型建议（工程实战）
+- 需要有序遍历、范围查询、稳定顺序：`map/set`
+- 只关心查找速度，不关心顺序：`unordered_map`
+- 只做去重并可能要排序输出：`set`
+- 计数场景（词频、统计）：优先 `unordered_map`
+
+先按需求选“语义正确”的容器，再做性能验证。
+
+### 19.12 常见错误模式
+- 误以为 `unordered_map` 永远比 `map` 快（数据规模/冲突会影响）。
+- 在只读查询时用 `operator[]`，无意插入脏数据。
+- 依赖 `unordered_map` 遍历顺序做业务逻辑。
+- 自定义键没写好哈希/相等，导致查找异常。
+- 大量插入前不 `reserve`，频繁 rehash 造成抖动。
+
+### 19.13 第 19 小节知识总结
+- `map/set` 和 `unordered_map` 的核心差异是“有序树” vs “无序哈希”。
+- 有序需求选 `map/set`，高速查找且无序需求选 `unordered_map`。
+- 理解 `operator[]` 副作用、迭代器失效、哈希冲突，是避免线上 bug 的关键。
+- 容器选型要以需求语义为先，再用基准测试确认性能。
+
+## 20. 迭代器与算法库（知识讲解）
+
+### 20.1 先把名词说清楚
+- 迭代器（iterator）：像“通用指针”，用于遍历容器元素。
+- 算法库（`<algorithm>` / `<numeric>`）：与容器解耦的通用算法集合。
+- 区间（range）：常用 `[first, last)` 表示，包含 `first` 不包含 `last`。
+
+一句话：算法不直接依赖容器类型，只依赖“迭代器能力”。
+
+### 20.2 为什么 STL 强调“算法 + 迭代器”
+同一个算法可作用于多种容器，只要迭代器能力满足要求。
+
+```mermaid
+graph LR
+  A[容器 vector/list/deque] --> B[迭代器]
+  B --> C[算法 sort/find/for_each]
+```
+
+这就是 STL 的核心思想：  
+“用统一迭代器抽象，把数据结构和算法分离。”
+
+### 20.3 基本遍历：`begin()` / `end()`
+
+```cpp
+#include <vector>
+#include <iostream>
+
+std::vector<int> v{1, 2, 3};
+for (auto it = v.begin(); it != v.end(); ++it) {
+    std::cout << *it << " ";
+}
+```
+
+`*it` 访问当前元素，`++it` 移动到下一个元素。
+
+### 20.4 迭代器类别（先记结论）
+- 输入迭代器：只读、单向
+- 输出迭代器：只写、单向
+- 前向迭代器：可多次遍历，单向
+- 双向迭代器：可前后移动（如 `list/map/set`）
+- 随机访问迭代器：支持 `it + n`、`it[n]`（如 `vector/deque`）
+
+算法对迭代器有最低要求：
+- `std::sort` 需要随机访问迭代器，所以不能直接用于 `list`。
+
+### 20.5 常用查找与统计算法
+- `find`：按值查找
+- `count`：统计值出现次数
+- `any_of/all_of/none_of`：谓词判断
+
+```cpp
+#include <algorithm>
+#include <vector>
+
+std::vector<int> v{1, 3, 5, 8};
+auto it = std::find(v.begin(), v.end(), 5);
+bool hasEven = std::any_of(v.begin(), v.end(), [](int x) { return x % 2 == 0; });
+```
+
+### 20.6 排序与比较器
+默认升序排序：
+
+```cpp
+std::sort(v.begin(), v.end());
+```
+
+自定义比较器（降序）：
+
+```cpp
+std::sort(v.begin(), v.end(), [](int a, int b) { return a > b; });
+```
+
+比较器要满足严格弱序要求，否则结果可能异常。
+
+### 20.7 数值算法：`accumulate`
+来自 `<numeric>`，用于累加或归约。
+
+```cpp
+#include <numeric>
+
+std::vector<int> v{1, 2, 3, 4};
+int sum = std::accumulate(v.begin(), v.end(), 0); // 10
+```
+
+第三个参数是初始值，类型会影响结果类型（常见坑）。
+
+### 20.8 修改型算法与 `erase-remove` 惯用法
+`std::remove` 不真正删除元素，只是把“保留元素”前移并返回新逻辑末尾。  
+真正删除要配合容器 `erase`：
+
+```cpp
+#include <algorithm>
+#include <vector>
+
+std::vector<int> v{1, 2, 3, 2, 4};
+v.erase(std::remove(v.begin(), v.end(), 2), v.end()); // 删除所有 2
+```
+
+这就是经典 `erase-remove idiom`。
+
+### 20.9 复制与变换算法
+- `copy`：复制区间到目标
+- `transform`：映射变换
+
+```cpp
+#include <algorithm>
+#include <vector>
+
+std::vector<int> a{1, 2, 3};
+std::vector<int> b(a.size());
+std::transform(a.begin(), a.end(), b.begin(), [](int x) { return x * x; });
+```
+
+如果目标容器为空，可配合插入迭代器：
+
+```cpp
+#include <iterator>
+std::vector<int> c;
+std::copy(a.begin(), a.end(), std::back_inserter(c));
+```
+
+### 20.10 迭代器失效（再强调一次）
+算法运行中如果你同时改动容器结构，迭代器可能失效。  
+高风险场景：
+- 在遍历 `vector` 时 `push_back` 导致扩容
+- 在 `erase` 后继续用旧迭代器
+
+安全做法：
+- 使用 `erase` 的返回值继续遍历
+- 修改结构后重新获取迭代器
+
+### 20.11 C++20 `ranges` 初步认知
+传统算法传 `begin/end`，C++20 ranges 可直接传容器，可读性更好。
+
+```cpp
+#include <algorithm>
+#include <vector>
+
+std::vector<int> v{3, 1, 2};
+std::ranges::sort(v);
+```
+
+你现在先掌握经典算法接口，后续再系统学 ranges。
+
+### 20.12 常见错误模式
+- 忘记判断 `find` 返回 `end()` 就解引用。
+- 误以为 `remove` 已经真的删元素。
+- 对 `list` 使用 `std::sort`（应使用 `list::sort`）。
+- 比较器写错导致排序行为不稳定。
+- 在算法中修改会影响迭代器有效性的容器结构。
+
+### 20.13 第 20 小节知识总结
+- 迭代器是容器与算法之间的统一接口。
+- 常用算法：`find`、`sort`、`accumulate`、`transform`、`copy`。
+- 修改型算法要理解“逻辑删除 vs 物理删除”区别。
+- 熟练掌握区间 `[first, last)` 与迭代器失效规则，是 STL 进阶关键。
+
+## 21. Lambda 与函数对象（知识讲解）
+
+### 21.1 先把名词说清楚
+- 可调用对象（callable）：能像函数一样被调用的东西。
+  - 普通函数
+  - 函数指针
+  - Lambda
+  - 重载了 `operator()` 的对象（函数对象）
+- Lambda：匿名函数对象的简写语法。
+- 闭包（closure）：Lambda 表达式生成的对象，里面可保存捕获的外部变量。
+
+一句话：Lambda 是“临时函数对象”的最常用写法。
+
+### 21.2 为什么要用 Lambda
+用途：
+- 作为算法参数（`sort`、`find_if`、`for_each`）
+- 写短逻辑，避免为了一个回调单独定义函数
+- 携带上下文（捕获外部变量）
+
+```mermaid
+flowchart LR
+  A[算法调用点] --> B[传入行为]
+  B --> C[普通函数]
+  B --> D[函数对象]
+  B --> E[Lambda]
+```
+
+### 21.3 Lambda 基本语法
+基本形态：
+
+```cpp
+[capture](params) -> return_type {
+    // body
+}
+```
+
+最常见省略返回类型（编译器推导）：
+
+```cpp
+auto add = [](int a, int b) { return a + b; };
+int x = add(2, 3); // 5
+```
+
+### 21.4 捕获（capture）是核心
+捕获决定 Lambda 如何使用外部变量。
+
+```cpp
+int a = 10;
+int b = 20;
+
+auto f1 = [a]() { return a; };     // 值捕获 a（拷贝）
+auto f2 = [&b]() { b += 1; };      // 引用捕获 b（可修改外部 b）
+auto f3 = [=]() { return a + b; }; // 按值捕获所有用到的外部变量
+auto f4 = [&]() { b += a; };       // 按引用捕获所有用到的外部变量
+```
+
+捕获清单速记：
+- `[]`：不捕获
+- `[x]`：值捕获 `x`
+- `[&x]`：引用捕获 `x`
+- `[=]`：按值捕获用到的外部变量
+- `[&]`：按引用捕获用到的外部变量
+- `[=, &x]`：默认按值，但 `x` 按引用
+
+### 21.5 `mutable`：修改“值捕获副本”
+值捕获默认在 Lambda 体内是只读的。要改副本需加 `mutable`：
+
+```cpp
+int n = 5;
+auto g = [n]() mutable {
+    ++n;      // 修改的是副本
+    return n;
+};
+```
+
+这里外部 `n` 不会变，变的是闭包对象里的那份副本。
+
+### 21.6 返回类型与泛型 Lambda
+返回类型多数可推导；复杂分支可显式写：
+
+```cpp
+auto sign = [](int x) -> const char* {
+    if (x > 0) return "pos";
+    if (x < 0) return "neg";
+    return "zero";
+};
+```
+
+C++14 起支持泛型 Lambda：
+
+```cpp
+auto twice = [](auto x) { return x + x; };
+```
+
+本质是编译器生成了模板化的 `operator()`。
+
+### 21.7 Lambda 在算法里的高频用法
+
+```cpp
+#include <algorithm>
+#include <vector>
+
+std::vector<int> v{1, 2, 3, 4, 5};
+int threshold = 3;
+
+int cnt = std::count_if(v.begin(), v.end(), [threshold](int x) {
+    return x > threshold;
+});
+```
+
+排序自定义规则：
+
+```cpp
+std::sort(v.begin(), v.end(), [](int a, int b) {
+    return a > b; // 降序
+});
+```
+
+### 21.8 函数对象（Functor）与 Lambda 关系
+函数对象就是实现了 `operator()` 的类：
+
+```cpp
+struct Add {
+    int operator()(int a, int b) const {
+        return a + b;
+    }
+};
+```
+
+Lambda 本质上也是编译器生成的函数对象类型。  
+区别：Lambda 写法更轻量，适合局部一次性逻辑；显式函数对象适合复用和复杂状态管理。
+
+### 21.9 `std::function` 是什么，何时用
+`std::function<R(Args...)>` 是“可调用对象的统一包装器”。
+
+```cpp
+#include <functional>
+
+std::function<int(int, int)> op;
+op = [](int a, int b) { return a + b; };
+```
+
+优点：接口统一，便于存储和传递不同 callable。  
+代价：可能有额外类型擦除开销。性能敏感路径可优先模板参数或 `auto`。
+
+### 21.10 生命周期与悬空引用（高危坑）
+引用捕获最容易出错：
+
+```cpp
+std::function<int()> makeBad() {
+    int x = 10;
+    return [&]() { return x; }; // 返回后 x 已销毁，悬空引用
+}
+```
+
+安全做法：
+- 返回会延迟调用的 Lambda 时，优先值捕获。
+- 明确谁拥有被捕获对象的生命周期。
+
+### 21.11 常见错误模式
+- 无脑用 `[&]`，导致引用悬空风险。
+- 以为值捕获能改外部变量（其实改的是副本）。
+- `std::function` 过度使用在热路径，忽视性能开销。
+- 比较器 Lambda 不满足严格弱序，导致排序异常。
+- 捕获过多变量，导致闭包对象过大、可读性差。
+
+### 21.12 第 21 小节知识总结
+- Lambda 是 C++ 里最实用的“局部行为表达”工具。
+- 真正难点不在语法，而在捕获语义与生命周期管理。
+- 函数对象、Lambda、`std::function` 各有场景，按复用性与性能要求选择。
+- 你要优先建立的直觉是：值捕获拷贝数据，引用捕获借用数据，借用就要负责生命周期。
 
 ## 22. 异常处理与错误模型
 `try/catch`、异常安全与错误边界设计。
