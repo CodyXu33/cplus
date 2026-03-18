@@ -16,10 +16,17 @@ int main(){
     // cout << b << endl;
 
     double score = 95.5;
-
+    cout << score << endl;
     int whole = static_cast<int>(score);
-
+    cout << whole << endl;
  
+
+    bool flag = true;
+
+    long num = 1000l;
+
+    
+
     const int ageConst = 20;
     return 0;
 }
