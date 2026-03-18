@@ -1780,8 +1780,219 @@ private:
 - 你现在要建立的核心直觉是：
   “谁拥有资源，谁负责释放；复制要不要共享，必须明确设计。”
 
-## 15. 继承与多态
-虚函数、覆盖、抽象类与接口设计。
+## 15. 继承与多态（知识讲解）
+
+### 15.1 先把名词说清楚
+- 继承（inheritance）：在已有类基础上扩展新类，复用已有实现。
+- 基类（base class）：被继承的类。
+- 派生类（derived class）：继承后得到的新类。
+- 多态（polymorphism）：同一接口，针对不同对象表现不同行为。
+- 虚函数（virtual function）：支持运行时动态分派的成员函数。
+- 覆盖（override）：派生类重写基类虚函数。
+- 抽象类（abstract class）：含纯虚函数，不能直接实例化。
+
+一句话：继承解决“是什么关系”，多态解决“同一调用点做不同行为”。
+
+### 15.2 什么时候用继承
+继承适用于明确的 is-a 关系：
+- `Dog` is a `Animal`
+- `Circle` is a `Shape`
+
+不适合 has-a 关系（例如“汽车有一个引擎”应优先组合）。
+
+```mermaid
+graph TD
+  A[代码复用需求] --> B{是否 is-a 关系?}
+  B -- 是 --> C[考虑继承]
+  B -- 否 --> D[优先组合]
+```
+
+### 15.3 基本继承语法
+
+```cpp
+#include <iostream>
+#include <string>
+
+class Animal {
+public:
+    void eat() const {
+        std::cout << "Animal eat\n";
+    }
+};
+
+class Dog : public Animal {
+public:
+    void bark() const {
+        std::cout << "Dog bark\n";
+    }
+};
+```
+
+这里 `Dog` 自动拥有 `Animal` 的 `public` 接口（受继承方式影响，见下一节）。
+
+### 15.4 `public/protected/private` 继承区别
+常用的是 `public` 继承。它表示“派生类是一种基类”。
+
+- `public` 继承：
+  - 基类 `public` -> 派生类中仍是 `public`
+  - 基类 `protected` -> 派生类中仍是 `protected`
+- `protected` 继承：
+  - 基类 `public/protected` -> 派生类中变为 `protected`
+- `private` 继承：
+  - 基类 `public/protected` -> 派生类中变为 `private`
+
+工程实践：建模 is-a 时优先 `public` 继承。
+
+### 15.5 构造与析构顺序（高频考点）
+对象构造顺序：
+1. 先构造基类
+2. 再构造派生类
+
+对象析构顺序相反：
+1. 先析构派生类
+2. 再析构基类
+
+```mermaid
+sequenceDiagram
+  participant B as Base
+  participant D as Derived
+  Note over B,D: 构造阶段
+  B->>D: Base ctor 先
+  D-->>D: Derived ctor 后
+  Note over B,D: 析构阶段
+  D->>B: Derived dtor 先
+  B-->>B: Base dtor 后
+```
+
+### 15.6 多态的核心：虚函数
+如果基类函数不是 `virtual`，通过基类指针/引用调用时不会发生动态分派。
+
+```cpp
+#include <iostream>
+
+class Animal {
+public:
+    virtual void speak() const {
+        std::cout << "Animal sound\n";
+    }
+
+    virtual ~Animal() = default; // 多态基类必须有虚析构
+};
+
+class Dog : public Animal {
+public:
+    void speak() const override {
+        std::cout << "Woof\n";
+    }
+};
+```
+
+调用示例：
+
+```cpp
+Animal* p = new Dog();
+p->speak(); // 输出 Woof（运行时绑定到 Dog::speak）
+delete p;
+```
+
+### 15.7 `override` 和 `final` 为什么必须写
+- `override`：告诉编译器“我就是在覆盖基类虚函数”。
+  - 如果签名不匹配，编译器会报错，能避免隐蔽 bug。
+- `final`：
+  - 标在虚函数上：禁止继续覆盖。
+  - 标在类上：禁止继续继承。
+
+```cpp
+class Base {
+public:
+    virtual void run(int x) const {}
+};
+
+class Derived : public Base {
+public:
+    void run(int x) const override {} // 推荐始终写 override
+};
+```
+
+### 15.8 纯虚函数与抽象类（接口设计基础）
+纯虚函数写法：
+
+```cpp
+class Shape {
+public:
+    virtual double area() const = 0; // 纯虚函数
+    virtual ~Shape() = default;
+};
+```
+
+`Shape` 不能直接创建对象，只能作为接口基类。  
+派生类必须实现 `area()` 才能实例化。
+
+```cpp
+class Circle : public Shape {
+public:
+    explicit Circle(double r) : radius(r) {}
+    double area() const override { return 3.1415926 * radius * radius; }
+
+private:
+    double radius;
+};
+```
+
+### 15.9 对象切片（object slicing）是什么
+当你把派生类对象“按值”赋给基类对象时，派生部分会被切掉。
+
+```cpp
+class Base {
+public:
+    virtual void f() const { std::cout << "Base\n"; }
+    virtual ~Base() = default;
+};
+
+class Derived : public Base {
+public:
+    void f() const override { std::cout << "Derived\n"; }
+};
+
+Derived d;
+Base b = d; // 发生切片，只保留 Base 子对象
+b.f();      // 输出 Base
+```
+
+避免方式：多态场景用“基类引用或指针”，不要按值传递基类对象。
+
+### 15.10 为什么“多态基类必须虚析构”
+如果基类析构不是 `virtual`，用 `Base*` 删除 `Derived` 对象会出错（未定义行为），常见表现是资源泄漏或析构不完整。
+
+```cpp
+class Base {
+public:
+    virtual ~Base() = default; // 正确
+};
+```
+
+规则：只要类里有虚函数，析构函数通常就应为 `virtual`。
+
+### 15.11 继承 vs 组合：工程上的常见选择
+- 继承：强调类型关系（is-a），便于多态。
+- 组合：强调能力拼装（has-a），耦合更低，改动更灵活。
+
+实践建议：
+- 先问自己“逻辑上真的是一种吗？”是则考虑继承。
+- 如果只是复用代码，不一定要继承，组合往往更稳。
+
+### 15.12 常见错误模式
+- 把“代码复用”误当“必须继承”，造成层次复杂。
+- 忘记给基类析构加 `virtual`。
+- 覆盖函数不写 `override`，签名写错却没发现。
+- 多态场景按值传参，触发对象切片。
+- 在基类构造/析构函数中调用虚函数，行为常与预期不符。
+
+### 15.13 第 15 小节知识总结
+- 继承用于表达 is-a 关系，多态用于统一接口下的动态行为。
+- 虚函数 + `override` + 虚析构是多态类三件套。
+- 抽象类是接口设计基础，纯虚函数定义“必须实现”的能力。
+- 工程中优先保证关系正确：不确定时优先组合而非继承。
 
 ## 16. 运算符重载
 理解可读性与语义一致性的重载规则。
