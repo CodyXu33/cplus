@@ -657,8 +657,131 @@ std::ifstream in("a.bin", std::ios::binary);
 - 文件读写必须做“打开检查 + 错误处理”。
 - 正确处理输入失败和缓冲区问题是写稳健程序的基础。
 
-## 7. 分支与循环控制
-熟练使用 `if`、`switch`、`for`、`while`。
+## 7. 分支与循环控制（知识讲解）
+
+### 7.1 控制流的意义
+控制流用于决定“哪些语句执行、执行几次、何时结束”。
+核心结构分为两类：
+- 分支：根据条件选择路径。
+- 循环：重复执行一段逻辑直到条件变化。
+
+```mermaid
+graph TD
+  A[程序执行] --> B[分支]
+  A --> C[循环]
+  B --> D[if / switch]
+  C --> E[for / while / do-while]
+```
+
+### 7.2 `if / else if / else`
+`if` 适合处理范围判断、布尔条件组合。
+
+```cpp
+int score = 82;
+if (score >= 90) {
+    std::cout << "A\n";
+} else if (score >= 80) {
+    std::cout << "B\n";
+} else {
+    std::cout << "C\n";
+}
+```
+
+条件表达式最终会转换为布尔值，建议写出显式比较，减少歧义。
+
+### 7.3 `switch` 结构
+`switch` 适合离散值分派（如状态码、菜单命令）。
+
+```cpp
+int cmd = 2;
+switch (cmd) {
+case 1:
+    std::cout << "start\n";
+    break;
+case 2:
+    std::cout << "stop\n";
+    break;
+default:
+    std::cout << "unknown\n";
+    break;
+}
+```
+
+重点：`case` 末尾通常要 `break`，否则会发生贯穿（fallthrough）。
+
+```mermaid
+flowchart TD
+  A[switch(expr)] --> B{case 1?}
+  B -- 是 --> C[执行 case 1]
+  B -- 否 --> D{case 2?}
+  D -- 是 --> E[执行 case 2]
+  D -- 否 --> F[default]
+```
+
+### 7.4 `for` 循环
+`for` 适合“已知迭代次数”或“按索引访问”。
+
+```cpp
+for (int i = 0; i < 5; ++i) {
+    std::cout << i << " ";
+}
+```
+
+结构：初始化 -> 条件判断 -> 执行体 -> 迭代表达式。
+
+### 7.5 `while` 与 `do-while`
+- `while`：先判断再执行，可能一次都不执行。
+- `do-while`：先执行再判断，至少执行一次。
+
+```cpp
+int n = 0;
+while (n < 3) {
+    ++n;
+}
+
+do {
+    --n;
+} while (n > 0);
+```
+
+### 7.6 循环控制语句
+- `break`：立即退出当前循环。
+- `continue`：跳过本次剩余语句，进入下一次迭代。
+
+```cpp
+for (int i = 0; i < 10; ++i) {
+    if (i == 5) break;
+    if (i % 2 == 0) continue;
+    std::cout << i << " "; // 输出 1 3
+}
+```
+
+```mermaid
+flowchart LR
+  A[进入循环体] --> B{条件1 break?}
+  B -- 是 --> C[退出循环]
+  B -- 否 --> D{条件2 continue?}
+  D -- 是 --> E[下一次迭代]
+  D -- 否 --> F[执行剩余逻辑]
+```
+
+### 7.7 常见错误模式
+- `if (x = 3)` 写成赋值而非比较（应为 `==`）。
+- `switch` 忘记 `break` 导致意外贯穿。
+- 循环条件不更新造成死循环。
+- 边界条件错误导致越界（如 `i <= size`）。
+
+### 7.8 可读性与工程建议
+- 分支条件复杂时拆成布尔变量，提升可读性。
+- 避免超过 3 层嵌套；必要时提取函数。
+- 循环优先前置自增 `++i`（语义更统一）。
+- 明确处理边界值：空输入、0 次循环、单元素场景。
+
+### 7.9 第 7 小节知识总结
+- 分支决定“走哪条路”，循环决定“走几次”。
+- `if` 适合范围判断，`switch` 适合离散分派。
+- `break/continue` 是控制循环行为的核心工具。
+- 控制流错误多来自边界和条件写法，需重点检查。
 
 ## 8. 函数基础
 函数声明定义、参数、返回值、作用域。
@@ -740,6 +863,7 @@ GoogleTest 入门、断点调试、日志排查。
 - 编译参数：`-std=c++20 -Wall -Wextra -Werror`
 - 命名：类型 `PascalCase`，函数/变量 `camelCase`，常量 `kCamelCase`
 - 代码组织：单一职责、低耦合、高可读性。
+
 
 
 
