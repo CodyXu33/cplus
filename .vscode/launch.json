@@ -1,0 +1,17 @@
+﻿{
+    "configurations": [
+        {
+            "name": "C/C++: launch active file",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${fileDirname}\\${fileBasenameNoExtension}.exe",
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${fileDirname}",
+            "environment": [],
+            "console": "integratedTerminal",
+            "preLaunchTask": "C/C++: build active file (exe only)"
+        }
+    ],
+    "version": "2.0.0"
+}

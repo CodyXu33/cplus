@@ -1,0 +1,32 @@
+﻿{
+    "tasks": [
+        {
+            "type": "cppbuild",
+            "label": "C/C++: build active file (exe only)",
+            "command": "cl.exe",
+            "args": [
+                "/nologo",
+                "/EHsc",
+                "/utf-8",
+                "/Fo${env:TEMP}\\${fileBasenameNoExtension}.obj",
+                "/Fd${env:TEMP}\\",
+                "/Fe${fileDirname}\\${fileBasenameNoExtension}.exe",
+                "${file}",
+                "/link",
+                "/INCREMENTAL:NO"
+            ],
+            "options": {
+                "cwd": "${fileDirname}"
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "detail": "Build active file and keep only exe in workspace"
+        }
+    ],
+    "version": "2.0.0"
+}
